@@ -7,6 +7,7 @@ import type {
   PermissionRequest,
   QuestionRequest,
   QuestionAnswer,
+  SecureInputRequest,
 } from "@opencode-ai/sdk/v2"
 import { createSimpleContext } from "./helper"
 import { PreloadMultiFileDiffResult } from "@pierre/diffs/ssr"
@@ -28,6 +29,9 @@ type Data = {
   question?: {
     [sessionID: string]: QuestionRequest[]
   }
+  secure_input?: {
+    [sessionID: string]: SecureInputRequest[]
+  }
   message: {
     [sessionID: string]: Message[]
   }
@@ -46,6 +50,10 @@ export type QuestionReplyFn = (input: { requestID: string; answers: QuestionAnsw
 
 export type QuestionRejectFn = (input: { requestID: string }) => void
 
+export type SecureInputSubmitFn = (input: { requestID: string; input: string }) => void
+
+export type SecureInputCancelFn = (input: { requestID: string }) => void
+
 export type NavigateToSessionFn = (sessionID: string) => void
 
 export const { use: useData, provider: DataProvider } = createSimpleContext({
@@ -56,6 +64,8 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     onPermissionRespond?: PermissionRespondFn
     onQuestionReply?: QuestionReplyFn
     onQuestionReject?: QuestionRejectFn
+    onSecureInputSubmit?: SecureInputSubmitFn
+    onSecureInputCancel?: SecureInputCancelFn
     onNavigateToSession?: NavigateToSessionFn
   }) => {
     return {
@@ -68,6 +78,8 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       respondToPermission: props.onPermissionRespond,
       replyToQuestion: props.onQuestionReply,
       rejectQuestion: props.onQuestionReject,
+      submitSecureInput: props.onSecureInputSubmit,
+      cancelSecureInput: props.onSecureInputCancel,
       navigateToSession: props.onNavigateToSession,
     }
   },

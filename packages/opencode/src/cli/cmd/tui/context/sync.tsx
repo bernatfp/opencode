@@ -9,6 +9,7 @@ import type {
   Command,
   PermissionRequest,
   QuestionRequest,
+  SecureInputRequest,
   LspStatus,
   McpStatus,
   McpResource,
@@ -45,6 +46,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       }
       question: {
         [sessionID: string]: QuestionRequest[]
+      }
+      secure_input: {
+        [sessionID: string]: SecureInputRequest[]
       }
       config: Config
       session: Session[]
@@ -85,6 +89,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       agent: [],
       permission: {},
       question: {},
+      secure_input: {},
       command: [],
       provider: [],
       provider_default: {},
@@ -177,6 +182,45 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           }
           setStore(
             "question",
+            request.sessionID,
+            produce((draft) => {
+              draft.splice(match.index, 0, request)
+            }),
+          )
+          break
+        }
+
+        case "secure-input.submitted":
+        case "secure-input.cancelled":
+        case "secure-input.timed-out": {
+          const requests = store.secure_input[event.properties.sessionID]
+          if (!requests) break
+          const match = Binary.search(requests, event.properties.requestID, (r) => r.id)
+          if (!match.found) break
+          setStore(
+            "secure_input",
+            event.properties.sessionID,
+            produce((draft) => {
+              draft.splice(match.index, 1)
+            }),
+          )
+          break
+        }
+
+        case "secure-input.requested": {
+          const request = event.properties
+          const requests = store.secure_input[request.sessionID]
+          if (!requests) {
+            setStore("secure_input", request.sessionID, [request])
+            break
+          }
+          const match = Binary.search(requests, request.id, (r) => r.id)
+          if (match.found) {
+            setStore("secure_input", request.sessionID, match.index, reconcile(request))
+            break
+          }
+          setStore(
+            "secure_input",
             request.sessionID,
             produce((draft) => {
               draft.splice(match.index, 0, request)

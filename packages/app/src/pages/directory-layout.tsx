@@ -33,6 +33,11 @@ export default function Layout(props: ParentProps) {
 
             const rejectQuestion = (input: { requestID: string }) => sdk.client.question.reject(input)
 
+            const submitSecureInput = (input: { requestID: string; input: string }) =>
+              sdk.client.secureInput.submit(input)
+
+            const cancelSecureInput = (input: { requestID: string }) => sdk.client.secureInput.cancel(input)
+
             const navigateToSession = (sessionID: string) => {
               navigate(`/${params.dir}/session/${sessionID}`)
             }
@@ -44,6 +49,8 @@ export default function Layout(props: ParentProps) {
                 onPermissionRespond={respond}
                 onQuestionReply={replyToQuestion}
                 onQuestionReject={rejectQuestion}
+                onSecureInputSubmit={submitSecureInput}
+                onSecureInputCancel={cancelSecureInput}
                 onNavigateToSession={navigateToSession}
               >
                 <LocalProvider>{props.children}</LocalProvider>

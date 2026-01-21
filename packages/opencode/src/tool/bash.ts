@@ -16,6 +16,7 @@ import { Shell } from "@/shell/shell"
 
 import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncation"
+import { SecureInput } from "@/secure-input"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -50,6 +51,11 @@ const parser = lazy(async () => {
   return p
 })
 
+const ptySpawn = lazy(async () => {
+  const { spawn } = await import("bun-pty")
+  return spawn
+})
+
 // TODO: we may wanna rename this tool so it works better on other shells
 export const BashTool = Tool.define("bash", async () => {
   const shell = Shell.acceptable()
@@ -73,6 +79,12 @@ export const BashTool = Tool.define("bash", async () => {
         .describe(
           "Clear, concise description of what this command does in 5-10 words. Examples:\nInput: ls\nOutput: Lists files in current directory\n\nInput: git status\nOutput: Shows working tree status\n\nInput: npm install\nOutput: Installs package dependencies\n\nInput: mkdir foo\nOutput: Creates directory 'foo'",
         ),
+      interactive: z
+        .boolean()
+        .describe(
+          "Set to true for commands that require password input (sudo, ssh -t, ansible -K). When enabled, the user will be prompted securely for passwords. Auto-detected for common patterns like 'sudo', 'ssh -t', 'ansible -K'.",
+        )
+        .optional(),
     }),
     async execute(params, ctx) {
       const cwd = params.workdir || Instance.directory
@@ -154,6 +166,15 @@ export const BashTool = Tool.define("bash", async () => {
         })
       }
 
+      // Determine if command needs interactive execution
+      const needsInteractive = params.interactive ?? SecureInput.isInteractiveCommand(params.command)
+
+      if (needsInteractive) {
+        // Use PTY-based execution for interactive commands
+        return await executeInteractive(params.command, cwd, timeout, params.description, ctx)
+      }
+
+      // Standard non-interactive execution
       const proc = spawn(params.command, {
         shell,
         cwd,
@@ -256,3 +277,179 @@ export const BashTool = Tool.define("bash", async () => {
     },
   }
 })
+
+/**
+ * Execute a command interactively using PTY
+ * Handles password prompts by requesting secure input from the user
+ */
+async function executeInteractive(
+  command: string,
+  cwd: string,
+  timeout: number,
+  description: string,
+  ctx: Parameters<Parameters<typeof Tool.define>[1]>[1] extends Promise<infer U>
+    ? U extends { execute: (params: any, ctx: infer C) => any }
+      ? C
+      : never
+    : never,
+): Promise<{ title: string; metadata: Record<string, unknown>; output: string }> {
+  const shell = Shell.acceptable()
+  const spawn = await ptySpawn()
+
+  log.info("executing interactive command", { command, cwd })
+
+  const ptyProcess = spawn(shell, ["-c", command], {
+    name: "xterm-256color",
+    cwd,
+    env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
+  })
+
+  let output = ""
+  let rawOutput = "" // Keep raw output for prompt detection
+  let exitCode: number | null = null
+  let timedOut = false
+  let aborted = false
+  let pendingPrompt = false
+
+  // Initialize metadata with empty output
+  ctx.metadata({
+    metadata: {
+      output: "",
+      description,
+      interactive: true,
+    },
+  })
+
+  const updateMetadata = () => {
+    // Sanitize output before sending to LLM - remove password prompts
+    const sanitizedOutput = SecureInput.sanitizeOutput(output)
+    ctx.metadata({
+      metadata: {
+        output:
+          sanitizedOutput.length > MAX_METADATA_LENGTH
+            ? sanitizedOutput.slice(0, MAX_METADATA_LENGTH) + "\n\n..."
+            : sanitizedOutput,
+        description,
+        interactive: true,
+      },
+    })
+  }
+
+  // Buffer for detecting password prompts
+  let promptBuffer = ""
+  const PROMPT_BUFFER_SIZE = 500
+
+  ptyProcess.onData((data: string) => {
+    output += data
+    rawOutput += data
+    promptBuffer += data
+    if (promptBuffer.length > PROMPT_BUFFER_SIZE) {
+      promptBuffer = promptBuffer.slice(-PROMPT_BUFFER_SIZE)
+    }
+
+    updateMetadata()
+
+    // Check for password prompt if we're not already handling one
+    if (!pendingPrompt) {
+      const prompt = SecureInput.detectPasswordPrompt(promptBuffer)
+      if (prompt) {
+        pendingPrompt = true
+        log.info("detected password prompt", { prompt })
+
+        // Request secure input from user
+        SecureInput.request({
+          sessionID: ctx.sessionID,
+          prompt,
+          command,
+          pty: ptyProcess,
+        })
+          .then(() => {
+            pendingPrompt = false
+            promptBuffer = "" // Clear buffer after successful input
+          })
+          .catch((error) => {
+            pendingPrompt = false
+            log.warn("secure input failed", { error: error.message })
+            // The error will be reflected in the command output
+          })
+      }
+    }
+  })
+
+  const exitPromise = new Promise<number>((resolve) => {
+    ptyProcess.onExit(({ exitCode: code }) => {
+      exitCode = code
+      resolve(code)
+    })
+  })
+
+  // Handle abort
+  const abortHandler = () => {
+    aborted = true
+    try {
+      ptyProcess.write("\x03") // Send Ctrl+C
+      setTimeout(() => {
+        try {
+          ptyProcess.kill()
+        } catch {}
+      }, 100)
+    } catch {}
+  }
+
+  if (ctx.abort.aborted) {
+    abortHandler()
+  }
+
+  ctx.abort.addEventListener("abort", abortHandler, { once: true })
+
+  // Handle timeout
+  const timeoutTimer = setTimeout(() => {
+    timedOut = true
+    try {
+      ptyProcess.write("\x03") // Send Ctrl+C
+      setTimeout(() => {
+        try {
+          ptyProcess.kill()
+        } catch {}
+      }, 100)
+    } catch {}
+  }, timeout)
+
+  try {
+    await exitPromise
+  } finally {
+    clearTimeout(timeoutTimer)
+    ctx.abort.removeEventListener("abort", abortHandler)
+  }
+
+  const resultMetadata: string[] = []
+
+  if (timedOut) {
+    resultMetadata.push(`bash tool terminated command after exceeding timeout ${timeout} ms`)
+  }
+
+  if (aborted) {
+    resultMetadata.push("User aborted the command")
+  }
+
+  if (resultMetadata.length > 0) {
+    output += "\n\n<bash_metadata>\n" + resultMetadata.join("\n") + "\n</bash_metadata>"
+  }
+
+  // Sanitize output - remove password prompts and any sensitive patterns
+  const sanitizedOutput = SecureInput.sanitizeOutput(output)
+
+  return {
+    title: description,
+    metadata: {
+      output:
+        sanitizedOutput.length > MAX_METADATA_LENGTH
+          ? sanitizedOutput.slice(0, MAX_METADATA_LENGTH) + "\n\n..."
+          : sanitizedOutput,
+      exit: exitCode,
+      description,
+      interactive: true,
+    },
+    output: sanitizedOutput,
+  }
+}
