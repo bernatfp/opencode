@@ -17,6 +17,7 @@ import {
   type VcsInfo,
   type PermissionRequest,
   type QuestionRequest,
+  type SecureInputRequest,
   createOpencodeClient,
 } from "@opencode-ai/sdk/v2/client"
 import { createStore, produce, reconcile, type SetStoreFunction, type Store } from "solid-js/store"
@@ -68,6 +69,9 @@ type State = {
   }
   question: {
     [sessionID: string]: QuestionRequest[]
+  }
+  secure_input: {
+    [sessionID: string]: SecureInputRequest[]
   }
   mcp: {
     [name: string]: McpStatus
@@ -165,6 +169,7 @@ function createGlobalSync() {
           todo: {},
           permission: {},
           question: {},
+          secure_input: {},
           mcp: {},
           lsp: [],
           vcs: cache[0].value,
@@ -369,6 +374,38 @@ function createGlobalSync() {
                 reconcile(
                   questions
                     .filter((q) => !!q?.id)
+                    .slice()
+                    .sort((a, b) => a.id.localeCompare(b.id)),
+                  { key: "id" },
+                ),
+              )
+            }
+          })
+        }),
+        sdk.secureInput.list().then((x) => {
+          const grouped: Record<string, SecureInputRequest[]> = {}
+          for (const request of x.data ?? []) {
+            if (!request?.id || !request.sessionID) continue
+            const existing = grouped[request.sessionID]
+            if (existing) {
+              existing.push(request)
+              continue
+            }
+            grouped[request.sessionID] = [request]
+          }
+
+          batch(() => {
+            for (const sessionID of Object.keys(store.secure_input)) {
+              if (grouped[sessionID]) continue
+              setStore("secure_input", sessionID, [])
+            }
+            for (const [sessionID, requests] of Object.entries(grouped)) {
+              setStore(
+                "secure_input",
+                sessionID,
+                reconcile(
+                  requests
+                    .filter((r) => !!r?.id)
                     .slice()
                     .sort((a, b) => a.id.localeCompare(b.id)),
                   { key: "id" },
@@ -631,6 +668,45 @@ function createGlobalSync() {
         if (!result.found) break
         setStore(
           "question",
+          event.properties.sessionID,
+          produce((draft) => {
+            draft.splice(result.index, 1)
+          }),
+        )
+        break
+      }
+      case "secure-input.requested": {
+        const sessionID = event.properties.sessionID
+        const requests = store.secure_input[sessionID]
+        if (!requests) {
+          setStore("secure_input", sessionID, [event.properties])
+          break
+        }
+
+        const result = Binary.search(requests, event.properties.id, (r) => r.id)
+        if (result.found) {
+          setStore("secure_input", sessionID, result.index, reconcile(event.properties))
+          break
+        }
+
+        setStore(
+          "secure_input",
+          sessionID,
+          produce((draft) => {
+            draft.splice(result.index, 0, event.properties)
+          }),
+        )
+        break
+      }
+      case "secure-input.submitted":
+      case "secure-input.cancelled":
+      case "secure-input.timed-out": {
+        const requests = store.secure_input[event.properties.sessionID]
+        if (!requests) break
+        const result = Binary.search(requests, event.properties.requestID, (r) => r.id)
+        if (!result.found) break
+        setStore(
+          "secure_input",
           event.properties.sessionID,
           produce((draft) => {
             draft.splice(result.index, 1)
