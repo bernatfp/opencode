@@ -91,6 +91,12 @@ import type {
   QuestionRejectResponses,
   QuestionReplyErrors,
   QuestionReplyResponses,
+  SecureInputCancelErrors,
+  SecureInputCancelResponses,
+  SecureInputListForSessionResponses,
+  SecureInputListResponses,
+  SecureInputSubmitErrors,
+  SecureInputSubmitResponses,
   SessionAbortErrors,
   SessionAbortResponses,
   SessionChildrenErrors,
@@ -1919,6 +1925,124 @@ export class Question extends HeyApiClient {
   }
 }
 
+export class SecureInput extends HeyApiClient {
+  /**
+   * List pending secure input requests
+   *
+   * Get all pending secure input (password) requests across all sessions.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
+    return (options?.client ?? this.client).get<SecureInputListResponses, unknown, ThrowOnError>({
+      url: "/secure-input",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List pending secure input requests for session
+   *
+   * Get all pending secure input requests for a specific session.
+   */
+  public listForSession<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SecureInputListForSessionResponses, unknown, ThrowOnError>({
+      url: "/secure-input/session/{sessionID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Submit secure input
+   *
+   * Submit a password or other secure input for a pending request. The input goes directly to the PTY and is never stored or logged.
+   */
+  public submit<ThrowOnError extends boolean = false>(
+    parameters: {
+      requestID: string
+      directory?: string
+      input?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "requestID" },
+            { in: "query", key: "directory" },
+            { in: "body", key: "input" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SecureInputSubmitResponses, SecureInputSubmitErrors, ThrowOnError>({
+      url: "/secure-input/{requestID}/submit",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Cancel secure input request
+   *
+   * Cancel a pending secure input request. This will send Ctrl+C to the underlying process.
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      requestID: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "requestID" },
+            { in: "query", key: "directory" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SecureInputCancelResponses, SecureInputCancelErrors, ThrowOnError>({
+      url: "/secure-input/{requestID}/cancel",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Oauth extends HeyApiClient {
   /**
    * OAuth authorize
@@ -3147,6 +3271,11 @@ export class OpencodeClient extends HeyApiClient {
   private _question?: Question
   get question(): Question {
     return (this._question ??= new Question({ client: this.client }))
+  }
+
+  private _secureInput?: SecureInput
+  get secureInput(): SecureInput {
+    return (this._secureInput ??= new SecureInput({ client: this.client }))
   }
 
   private _provider?: Provider

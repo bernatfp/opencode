@@ -5,11 +5,13 @@ import { useTheme } from "../../context/theme"
 import type { SecureInputRequest } from "@opencode-ai/sdk/v2"
 import { useSDK } from "../../context/sdk"
 import { SplitBorder } from "../../component/border"
+import { useDialog } from "../../ui/dialog"
 
 export function SecureInputPrompt(props: { request: SecureInputRequest }) {
   const sdk = useSDK()
   const { theme } = useTheme()
   const keybind = useKeybind()
+  const dialog = useDialog()
   const dimensions = useTerminalDimensions()
   const narrow = () => dimensions().width < 80
 
@@ -18,8 +20,6 @@ export function SecureInputPrompt(props: { request: SecureInputRequest }) {
   const submit = () => {
     const value = password()
     if (!value) return
-
-    // Submit the secure input - goes directly to PTY
     sdk.client.secureInput.submit({
       requestID: props.request.id,
       input: value,
@@ -32,48 +32,49 @@ export function SecureInputPrompt(props: { request: SecureInputRequest }) {
     })
   }
 
+  // Handle ALL keyboard input manually
   useKeyboard((evt) => {
-    // Handle escape to cancel
+    // Skip if dialog is open (like command palette)
+    if (dialog.stack.length > 0) return
+
+    // Escape to cancel
     if (evt.name === "escape" || keybind.match("app_exit", evt)) {
       evt.preventDefault()
       cancel()
       return
     }
 
-    // Handle enter to submit
+    // Enter to submit
     if (evt.name === "return") {
       evt.preventDefault()
       submit()
       return
     }
 
-    // Handle backspace
+    // Backspace to delete last character
     if (evt.name === "backspace") {
       evt.preventDefault()
       setPassword((prev) => prev.slice(0, -1))
       return
     }
 
-    // Handle delete (clear all)
-    if (evt.name === "delete" && evt.ctrl) {
+    // Ctrl+U to clear all (common terminal shortcut)
+    if (evt.name === "u" && evt.ctrl) {
       evt.preventDefault()
       setPassword("")
       return
     }
 
-    // Handle printable characters
-    if (evt.char && evt.char.length === 1 && !evt.ctrl && !evt.meta) {
+    // Printable characters: single character name, no ctrl/meta modifiers
+    if (evt.name.length === 1 && !evt.ctrl && !evt.meta) {
       evt.preventDefault()
-      setPassword((prev) => prev + evt.char)
+      setPassword((prev) => prev + evt.name)
+      return
     }
   })
 
-  // Display masked password (asterisks)
-  const maskedPassword = () => {
-    const len = password().length
-    if (len === 0) return ""
-    return "*".repeat(len)
-  }
+  // Display masked password
+  const maskedPassword = () => "*".repeat(password().length)
 
   return (
     <box
@@ -82,6 +83,7 @@ export function SecureInputPrompt(props: { request: SecureInputRequest }) {
       borderColor={theme.accent}
       customBorderChars={SplitBorder.customBorderChars}
     >
+      {/* Header section */}
       <box gap={1} paddingLeft={1} paddingRight={3} paddingTop={1} paddingBottom={1}>
         <box flexDirection="row" gap={1} paddingLeft={1}>
           <text fg={theme.accent}>{"🔐"}</text>
@@ -98,6 +100,8 @@ export function SecureInputPrompt(props: { request: SecureInputRequest }) {
           </box>
         </Show>
       </box>
+
+      {/* Input section */}
       <box
         flexDirection={narrow() ? "column" : "row"}
         flexShrink={0}

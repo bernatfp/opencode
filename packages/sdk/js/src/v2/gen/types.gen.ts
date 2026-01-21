@@ -621,6 +621,48 @@ export type EventSessionCompacted = {
   }
 }
 
+export type SecureInputRequest = {
+  id: string
+  sessionID: string
+  /**
+   * The password prompt text displayed to the user
+   */
+  prompt: string
+  /**
+   * The command that triggered this prompt
+   */
+  command: string
+}
+
+export type EventSecureInputRequested = {
+  type: "secure-input.requested"
+  properties: SecureInputRequest
+}
+
+export type EventSecureInputSubmitted = {
+  type: "secure-input.submitted"
+  properties: {
+    sessionID: string
+    requestID: string
+  }
+}
+
+export type EventSecureInputCancelled = {
+  type: "secure-input.cancelled"
+  properties: {
+    sessionID: string
+    requestID: string
+  }
+}
+
+export type EventSecureInputTimedOut = {
+  type: "secure-input.timed-out"
+  properties: {
+    sessionID: string
+    requestID: string
+  }
+}
+
 export type Todo = {
   /**
    * Brief description of the task
@@ -882,6 +924,10 @@ export type Event =
   | EventQuestionReplied
   | EventQuestionRejected
   | EventSessionCompacted
+  | EventSecureInputRequested
+  | EventSecureInputSubmitted
+  | EventSecureInputCancelled
+  | EventSecureInputTimedOut
   | EventTodoUpdated
   | EventFileWatcherUpdated
   | EventTuiPromptAppend
@@ -3800,6 +3846,116 @@ export type QuestionRejectResponses = {
 }
 
 export type QuestionRejectResponse = QuestionRejectResponses[keyof QuestionRejectResponses]
+
+export type SecureInputListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/secure-input"
+}
+
+export type SecureInputListResponses = {
+  /**
+   * List of pending secure input requests
+   */
+  200: Array<SecureInputRequest>
+}
+
+export type SecureInputListResponse = SecureInputListResponses[keyof SecureInputListResponses]
+
+export type SecureInputListForSessionData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/secure-input/session/{sessionID}"
+}
+
+export type SecureInputListForSessionResponses = {
+  /**
+   * List of pending secure input requests for the session
+   */
+  200: Array<SecureInputRequest>
+}
+
+export type SecureInputListForSessionResponse =
+  SecureInputListForSessionResponses[keyof SecureInputListForSessionResponses]
+
+export type SecureInputSubmitData = {
+  body?: {
+    /**
+     * The secure input (password) to submit
+     */
+    input: string
+  }
+  path: {
+    requestID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/secure-input/{requestID}/submit"
+}
+
+export type SecureInputSubmitErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SecureInputSubmitError = SecureInputSubmitErrors[keyof SecureInputSubmitErrors]
+
+export type SecureInputSubmitResponses = {
+  /**
+   * Secure input submitted successfully
+   */
+  200: boolean
+}
+
+export type SecureInputSubmitResponse = SecureInputSubmitResponses[keyof SecureInputSubmitResponses]
+
+export type SecureInputCancelData = {
+  body?: never
+  path: {
+    requestID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/secure-input/{requestID}/cancel"
+}
+
+export type SecureInputCancelErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SecureInputCancelError = SecureInputCancelErrors[keyof SecureInputCancelErrors]
+
+export type SecureInputCancelResponses = {
+  /**
+   * Secure input request cancelled successfully
+   */
+  200: boolean
+}
+
+export type SecureInputCancelResponse = SecureInputCancelResponses[keyof SecureInputCancelResponses]
 
 export type ProviderListData = {
   body?: never
