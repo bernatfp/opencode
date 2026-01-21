@@ -1,26 +1,22 @@
 import { createSignal, Show } from "solid-js"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
-import type { TextareaRenderable } from "@opentui/core"
 import { useKeybind } from "../../context/keybind"
 import { useTheme } from "../../context/theme"
 import type { SecureInputRequest } from "@opencode-ai/sdk/v2"
 import { useSDK } from "../../context/sdk"
 import { SplitBorder } from "../../component/border"
-import { useTextareaKeybindings } from "../../component/textarea-keybindings"
 
 export function SecureInputPrompt(props: { request: SecureInputRequest }) {
   const sdk = useSDK()
   const { theme } = useTheme()
   const keybind = useKeybind()
-  const bindings = useTextareaKeybindings()
   const dimensions = useTerminalDimensions()
   const narrow = () => dimensions().width < 80
 
-  let textarea: TextareaRenderable | undefined
-  const [inputValue, setInputValue] = createSignal("")
+  const [password, setPassword] = createSignal("")
 
   const submit = () => {
-    const value = textarea?.plainText ?? inputValue()
+    const value = password()
     if (!value) return
 
     // Submit the secure input - goes directly to PTY
@@ -37,16 +33,47 @@ export function SecureInputPrompt(props: { request: SecureInputRequest }) {
   }
 
   useKeyboard((evt) => {
+    // Handle escape to cancel
     if (evt.name === "escape" || keybind.match("app_exit", evt)) {
       evt.preventDefault()
       cancel()
       return
     }
+
+    // Handle enter to submit
     if (evt.name === "return") {
       evt.preventDefault()
       submit()
+      return
+    }
+
+    // Handle backspace
+    if (evt.name === "backspace") {
+      evt.preventDefault()
+      setPassword((prev) => prev.slice(0, -1))
+      return
+    }
+
+    // Handle delete (clear all)
+    if (evt.name === "delete" && evt.ctrl) {
+      evt.preventDefault()
+      setPassword("")
+      return
+    }
+
+    // Handle printable characters
+    if (evt.char && evt.char.length === 1 && !evt.ctrl && !evt.meta) {
+      evt.preventDefault()
+      setPassword((prev) => prev + evt.char)
     }
   })
+
+  // Display masked password (asterisks)
+  const maskedPassword = () => {
+    const len = password().length
+    if (len === 0) return ""
+    return "*".repeat(len)
+  }
 
   return (
     <box
@@ -83,22 +110,13 @@ export function SecureInputPrompt(props: { request: SecureInputRequest }) {
         alignItems={narrow() ? "flex-start" : "center"}
         gap={1}
       >
-        <textarea
-          ref={(val: TextareaRenderable) => {
-            textarea = val
-            queueMicrotask(() => {
-              val.focus()
-            })
-          }}
-          focused
-          password={true}
-          placeholder="Enter password..."
-          textColor={theme.text}
-          focusedTextColor={theme.text}
-          cursorColor={theme.primary}
-          keyBindings={bindings()}
-          onInput={(e: { plainText: string }) => setInputValue(e.plainText)}
-        />
+        <box flexDirection="row" flexGrow={1}>
+          <text fg={theme.textMuted}>{"› "}</text>
+          <text fg={theme.text}>
+            {maskedPassword() || <span style={{ fg: theme.textMuted }}>Enter password...</span>}
+          </text>
+          <text fg={theme.primary}>{"█"}</text>
+        </box>
         <box flexDirection="row" gap={2} flexShrink={0}>
           <text fg={theme.text}>
             enter <span style={{ fg: theme.textMuted }}>submit</span>
